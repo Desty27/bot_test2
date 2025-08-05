@@ -15,30 +15,51 @@ try:
 except ImportError:
     CV2_AVAILABLE = False
 
+# Enhanced Tesseract Setup for Streamlit Cloud
 try:
     import pytesseract
+    
+    # Streamlit Cloud and Linux systems typically have tesseract in /usr/bin/
     tesseract_paths = [
-        r'C:\Program Files\Tesseract-OCR\tesseract.exe',
-        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',
-        '/usr/bin/tesseract',
-        '/usr/local/bin/tesseract',
-        'tesseract'
+        '/usr/bin/tesseract',                    # Linux/Streamlit Cloud (primary)
+        '/usr/local/bin/tesseract',              # macOS/Linux alternative
+        'tesseract',                             # System PATH (try this first for Streamlit Cloud)
+        r'C:\Program Files\Tesseract-OCR\tesseract.exe',        # Windows
+        r'C:\Program Files (x86)\Tesseract-OCR\tesseract.exe',  # Windows 32-bit
     ]
     
     tesseract_found = False
-    for path in tesseract_paths:
-        try:
-            if path != "tesseract":
-                pytesseract.pytesseract.tesseract_cmd = path
-            pytesseract.get_tesseract_version()
-            tesseract_found = True
-            break
-        except Exception:
-            continue
+    tesseract_error = ""
+    
+    # First, try the default system installation (most likely to work on Streamlit Cloud)
+    try:
+        pytesseract.pytesseract.tesseract_cmd = 'tesseract'
+        version = pytesseract.get_tesseract_version()
+        tesseract_found = True
+        tesseract_error = f"Found Tesseract version: {version}"
+    except Exception as e:
+        tesseract_error = f"Default tesseract failed: {str(e)}"
+        
+        # If default fails, try specific paths
+        for path in tesseract_paths:
+            try:
+                if path != "tesseract":
+                    pytesseract.pytesseract.tesseract_cmd = path
+                
+                # Test if tesseract is working
+                version = pytesseract.get_tesseract_version()
+                tesseract_found = True
+                tesseract_error = f"Found Tesseract at {path}, version: {version}"
+                break
+            except Exception as e:
+                tesseract_error += f" | {path}: {str(e)}"
+                continue
     
     TESSERACT_AVAILABLE = tesseract_found
-except ImportError:
+    
+except ImportError as e:
     TESSERACT_AVAILABLE = False
+    tesseract_error = f"pytesseract package not installed: {str(e)}"
 
 try:
     from azure.ai.inference import ChatCompletionsClient
@@ -48,15 +69,26 @@ try:
 except ImportError:
     AZURE_AI_AVAILABLE = False
 
-# Azure Configuration
+# Enhanced Azure Configuration for Streamlit Cloud
 try:
-    AZURE_API_KEY = st.secrets.get("AZURE_API_KEY", "EvC0NHV0wNV8WXaWuJ0YRkOMMcMsPzUjA7cCsQlO6n0TpUpqVRFeJQQJ99BGAC5T7U2XJ3w3AAAAACOGPQyF")
-    INFERENCE_ENDPOINT = st.secrets.get("INFERENCE_ENDPOINT", "https://i-avi-mcu2s38r-francecentral.services.ai.azure.com/models")
+    # First try to get from Streamlit secrets
+    AZURE_API_KEY = st.secrets.get("AZURE_API_KEY")
+    INFERENCE_ENDPOINT = st.secrets.get("INFERENCE_ENDPOINT")
     LLAMA_MODEL = st.secrets.get("LLAMA_MODEL", "Meta-Llama-3.1-405B-Instruct")
     CODESTRAL_MODEL = st.secrets.get("CODESTRAL_MODEL", "Codestral-2501")
     DEEPSEEK_MODEL = st.secrets.get("DEEPSEEK_MODEL", "DeepSeek-R1-0528")
+    
+    # If secrets are not available, use fallback values
+    if not AZURE_API_KEY:
+        AZURE_API_KEY = "EvC0NHV0wNV8WXaWuJ0YRkOMMcMsPzUjA7cCsQlO6n0TpUpqVRFeJQQJ99BGAC5T7U2XJ3w3AAAAACOGPQyF"
+    if not INFERENCE_ENDPOINT:
+        INFERENCE_ENDPOINT = "https://i-avi-mcu2s38r-francecentral.services.ai.azure.com/models"
+    
     GPT4_MODELS = ["gpt-4.1", "gpt-4o", "gpt-4-turbo", "gpt-4"]
-except:
+    
+except Exception as e:
+    st.error(f"⚠️ Configuration Warning: {str(e)}")
+    # Emergency fallback configuration
     AZURE_API_KEY = "EvC0NHV0wNV8WXaWuJ0YRkOMMcMsPzUjA7cCsQlO6n0TpUpqVRFeJQQJ99BGAC5T7U2XJ3w3AAAAACOGPQyF"
     INFERENCE_ENDPOINT = "https://i-avi-mcu2s38r-francecentral.services.ai.azure.com/models"
     LLAMA_MODEL = "Meta-Llama-3.1-405B-Instruct"
@@ -107,9 +139,21 @@ def call_ai_model(prompt, model_name, system_message="You are an expert AI assis
         return f"Error calling {model_name}: {str(e)}"
 
 def extract_text_from_image(image):
-    """Extract text from image using OCR"""
+    """Extract text from image using OCR with graceful fallback"""
     if not TESSERACT_AVAILABLE:
-        return "OCR_PLACEHOLDER_TEXT: Tesseract OCR not available. Please use manual input."
+        return """
+⚠️ OCR CURRENTLY UNAVAILABLE
+        
+Tesseract OCR is not installed on this Streamlit Cloud instance.
+
+WORKAROUND: 
+1. Use manual input below (fully functional!)
+2. Copy/paste the problem text from the image
+3. Or take a screenshot and type the problem manually
+
+Your Enhanced Multi-LLM DSA Solver works perfectly with manual input!
+All AI models and advanced features are available.
+        """
         
     try:
         if CV2_AVAILABLE:
@@ -121,11 +165,26 @@ def extract_text_from_image(image):
         else:
             processed_img = np.array(image.convert('L'))
         
-        custom_config = r'--oem 3 --psm 6'
-        text = pytesseract.image_to_string(processed_img, config=custom_config)
-        return text.strip() if text.strip() else "No text detected in image"
+        # Try multiple OCR configurations for better results
+        configs = [
+            r'--oem 3 --psm 6',  # Default config
+            r'--oem 3 --psm 13', # Raw line. Treat the image as a single text line
+            r'--oem 3 --psm 8',  # Single word
+            r'--oem 3 --psm 7',  # Single text line
+        ]
+        
+        for config in configs:
+            try:
+                text = pytesseract.image_to_string(processed_img, config=config)
+                if text.strip():
+                    return text.strip()
+            except Exception:
+                continue
+                
+        return "❌ No text detected in image. Please try manual input."
+        
     except Exception as e:
-        return f"OCR Error: {str(e)}. Please use manual input instead."
+        return f"❌ OCR Error: {str(e)}. Please use manual input instead."
 
 def extract_python_code(response_text):
     """Extract Python code from response"""
@@ -762,32 +821,119 @@ def main():
     st.title("🚀 Enhanced Multi-LLM DSA Solver")
     st.markdown("**Advanced AI Pipeline:** Strategic Multi-Model Approach with Deep Analysis")
     
-    # System status
-    with st.expander("🔧 System Status"):
+    # Enhanced System status with troubleshooting info
+    with st.expander("🔧 System Status & Troubleshooting"):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.success("✅ Tesseract OCR" if TESSERACT_AVAILABLE else "❌ Tesseract OCR")
+            if TESSERACT_AVAILABLE:
+                st.success("✅ Tesseract OCR")
+                st.caption(f"Debug: {tesseract_error}")
+            else:
+                st.warning("⚠️ OCR Unavailable")
+                st.info("💡 **Solution:** Use manual input below - works perfectly!")
+                with st.expander("🔍 OCR Troubleshooting (Optional)"):
+                    st.markdown("""
+                    **Tesseract isn't installed on this Streamlit Cloud instance.**
+                    
+                    **Quick Fix Options:**
+                    1. **Use Manual Input** ← Recommended! Works perfectly
+                    2. Try redeploying the app (may fix package installation)
+                    3. Contact Streamlit Cloud support if OCR is critical
+                    
+                    **Your app works fully without OCR!**
+                    All AI models and DSA solving features are available.
+                    """)
+                    st.code(f"Debug info: {tesseract_error[:200]}...", language="text")
+                with st.expander("� Tesseract Fix Steps"):
+                    st.markdown("""
+                    **For Streamlit Cloud:**
+                    1. Ensure `packages.txt` contains:
+                       ```
+                       tesseract-ocr
+                       tesseract-ocr-eng
+                       ```
+                    2. Check deployment logs for package installation errors
+                    3. Try redeploying the app
+                    4. If still fails, OCR will be disabled but manual input works
+                    """)
         with col2:
             st.success("✅ OpenCV" if CV2_AVAILABLE else "⚠️ Basic Processing")
         with col3:
-            st.success("✅ Azure AI" if AZURE_AI_AVAILABLE else "❌ Azure AI")
+            if AZURE_AI_AVAILABLE:
+                st.success("✅ Azure AI")
+            else:
+                st.error("❌ Azure AI")
+                st.info("📝 **Fix:** Check requirements_enhanced.txt has azure-ai-inference")
         with col4:
             client = get_inference_client()
-            st.success("✅ Models Ready" if client else "❌ Models Failed")
+            if client:
+                st.success("✅ Models Ready")
+            else:
+                st.error("❌ Models Failed")
+                st.info("📝 **Fix:** Add Azure credentials to Streamlit Cloud Secrets")
+        
+        # Troubleshooting section
+        if not TESSERACT_AVAILABLE or not AZURE_AI_AVAILABLE or not get_inference_client():
+            st.markdown("### 🆘 **Troubleshooting for Streamlit Cloud:**")
+            
+            if not TESSERACT_AVAILABLE:
+                st.markdown("""
+                **❌ Tesseract OCR Issue:**
+                1. Ensure `packages.txt` is in your repository root
+                2. Content should be:
+                   ```
+                   tesseract-ocr
+                   tesseract-ocr-eng
+                   libtesseract-dev
+                   libleptonica-dev
+                   ```
+                3. Redeploy the app after adding the file
+                """)
+            
+            if not AZURE_AI_AVAILABLE:
+                st.markdown("""
+                **❌ Azure AI Issue:**
+                1. Check `requirements_enhanced.txt` includes:
+                   ```
+                   azure-ai-inference>=1.0.0b4
+                   azure-core>=1.29.0
+                   azure-identity>=1.15.0
+                   ```
+                2. Redeploy after updating requirements
+                """)
+            
+            if not get_inference_client():
+                st.markdown("""
+                **❌ Models Failed:**
+                1. Go to Streamlit Cloud app settings → Secrets
+                2. Add these secrets:
+                   ```toml
+                   AZURE_API_KEY = "your-key-here"
+                   INFERENCE_ENDPOINT = "your-endpoint-here"
+                   LLAMA_MODEL = "Meta-Llama-3.1-405B-Instruct"
+                   CODESTRAL_MODEL = "Codestral-2501"
+                   DEEPSEEK_MODEL = "DeepSeek-R1-0528"
+                   ```
+                3. Restart the app
+                """)
     
     # Model availability check
-    if AZURE_AI_AVAILABLE:
-        st.subheader("🤖 Available Models")
+    if AZURE_AI_AVAILABLE and get_inference_client():
+        st.subheader("🤖 Model Status Check")
         col1, col2, col3 = st.columns(3)
         
         test_models = [LLAMA_MODEL, CODESTRAL_MODEL, DEEPSEEK_MODEL]
         for i, model in enumerate(test_models):
             with [col1, col2, col3][i]:
-                test_result = call_ai_model("Test", model, "Test", max_tokens=10)
-                if not test_result.startswith("Error"):
-                    st.success(f"✅ {model.split('-')[0]}")
-                else:
-                    st.error(f"❌ {model.split('-')[0]}")
+                with st.spinner(f"Testing {model.split('-')[0]}..."):
+                    test_result = call_ai_model("Hello", model, "You are a test assistant", max_tokens=10)
+                    if not test_result.startswith("🔴") and not test_result.startswith("Error"):
+                        st.success(f"✅ {model.split('-')[0]}")
+                    else:
+                        st.error(f"❌ {model.split('-')[0]}")
+                        st.caption(f"Error: {test_result[:100]}...")
+    elif AZURE_AI_AVAILABLE:
+        st.warning("⚠️ Azure AI available but client initialization failed - check secrets")
     
     # Configuration sidebar
     with st.sidebar:
