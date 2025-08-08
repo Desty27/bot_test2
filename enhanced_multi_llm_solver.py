@@ -78,19 +78,13 @@ try:
     CODESTRAL_MODEL = st.secrets.get("CODESTRAL_MODEL", "Codestral-2501")
     DEEPSEEK_MODEL = st.secrets.get("DEEPSEEK_MODEL", "DeepSeek-R1-0528")
     
-    # If secrets are not available, use fallback values
-    if not AZURE_API_KEY:
-        AZURE_API_KEY = "EvC0NHV0wNV8WXaWuJ0YRkOMMcMsPzUjA7cCsQlO6n0TpUpqVRFeJQQJ99BGAC5T7U2XJ3w3AAAAACOGPQyF"
-    if not INFERENCE_ENDPOINT:
-        INFERENCE_ENDPOINT = "https://i-avi-mcu2s38r-francecentral.services.ai.azure.com/models"
     
     GPT4_MODELS = ["gpt-4.1", "gpt-4o", "gpt-4-turbo", "gpt-4"]
     
 except Exception as e:
     st.error(f"⚠️ Configuration Warning: {str(e)}")
     # Emergency fallback configuration
-    AZURE_API_KEY = "EvC0NHV0wNV8WXaWuJ0YRkOMMcMsPzUjA7cCsQlO6n0TpUpqVRFeJQQJ99BGAC5T7U2XJ3w3AAAAACOGPQyF"
-    INFERENCE_ENDPOINT = "https://i-avi-mcu2s38r-francecentral.services.ai.azure.com/models"
+    
     LLAMA_MODEL = "Meta-Llama-3.1-405B-Instruct"
     CODESTRAL_MODEL = "Codestral-2501"
     DEEPSEEK_MODEL = "DeepSeek-R1-0528"
@@ -1014,3 +1008,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
