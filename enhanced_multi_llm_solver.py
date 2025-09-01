@@ -8,6 +8,13 @@ import sys
 import json
 from io import StringIO
 
+# Set page config FIRST - before any other Streamlit commands
+st.set_page_config(
+    page_title="Enhanced Multi-LLM DSA Solver",
+    page_icon="🚀",
+    layout="wide"
+)
+
 # Try to import optional dependencies
 try:
     import cv2
@@ -69,33 +76,48 @@ try:
 except ImportError:
     AZURE_AI_AVAILABLE = False
 
-# Enhanced Azure Configuration for Streamlit Cloud
 try:
-    # First try to get from Streamlit secrets
-    AZURE_API_KEY = st.secrets.get("AZURE_API_KEY")
-    INFERENCE_ENDPOINT = st.secrets.get("INFERENCE_ENDPOINT")
+    from openai import AzureOpenAI
+    AZURE_OPENAI_AVAILABLE = True
+except ImportError:
+    AZURE_OPENAI_AVAILABLE = False
+
+# Configuration for Streamlit Cloud Deployment
+try:
+    # Get configuration from Streamlit secrets
+    AZURE_API_KEY = st.secrets["AZURE_API_KEY"]
+    INFERENCE_ENDPOINT = st.secrets["INFERENCE_ENDPOINT"]
     LLAMA_MODEL = st.secrets.get("LLAMA_MODEL", "Meta-Llama-3.1-405B-Instruct")
     CODESTRAL_MODEL = st.secrets.get("CODESTRAL_MODEL", "Codestral-2501")
     DEEPSEEK_MODEL = st.secrets.get("DEEPSEEK_MODEL", "DeepSeek-R1-0528")
-    
-    
-    GPT4_MODELS = ["gpt-4.1", "gpt-4o", "gpt-4-turbo", "gpt-4"]
+
+    # Azure OpenAI Configuration
+    GPT5_ENDPOINT = st.secrets["GPT5_ENDPOINT"]
+    GPT5_API_KEY = st.secrets["GPT5_API_KEY"]
+    GPT5_API_VERSION = st.secrets.get("GPT5_API_VERSION", "2024-12-01-preview")
+
+    # GPT-4.1 Configuration
+    GPT41_ENDPOINT = st.secrets["GPT41_ENDPOINT"]
+    GPT41_API_KEY = st.secrets["GPT41_API_KEY"]
+    GPT41_API_VERSION = st.secrets.get("GPT41_API_VERSION", "2024-12-01-preview")
     
 except Exception as e:
-    st.error(f"⚠️ Configuration Warning: {str(e)}")
-    # Emergency fallback configuration
-    
-    LLAMA_MODEL = "Meta-Llama-3.1-405B-Instruct"
-    CODESTRAL_MODEL = "Codestral-2501"
-    DEEPSEEK_MODEL = "DeepSeek-R1-0528"
-    GPT4_MODELS = ["gpt-4.1", "gpt-4o", "gpt-4-turbo", "gpt-4"]
+    st.error(f"⚠️ Configuration Error: {str(e)}")
+    st.error("Please ensure all required secrets are configured in Streamlit Cloud.")
+    st.stop()
 
-# Set page config
-st.set_page_config(
-    page_title="Enhanced Multi-LLM DSA Solver",
-    page_icon="🚀",
-    layout="wide"
-)
+# Available models
+GPT5_MODEL_NAME = "gpt-5"
+GPT5_DEPLOYMENT = "gpt-5"
+GPT41_MODEL_NAME = "gpt-4.1"
+GPT41_DEPLOYMENT = "gpt-4.1"
+
+# Try to import optional dependencies
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
 
 @st.cache_resource
 def get_inference_client():
@@ -112,25 +134,114 @@ def get_inference_client():
         st.error(f"Inference client error: {str(e)}")
         return None
 
+@st.cache_resource
+def get_gpt5_client():
+    """Initialize GPT-5 Azure OpenAI client"""
+    if not AZURE_OPENAI_AVAILABLE:
+        return None
+    try:
+        from openai import AzureOpenAI
+        client = AzureOpenAI(
+            api_version=GPT5_API_VERSION,
+            azure_endpoint=GPT5_ENDPOINT,
+            api_key=GPT5_API_KEY,
+        )
+        return client
+    except Exception as e:
+        st.error(f"GPT-5 client error: {str(e)}")
+        return None
+
+@st.cache_resource
+def get_gpt41_client():
+    """Initialize GPT-4.1 Azure OpenAI client"""
+    if not AZURE_OPENAI_AVAILABLE:
+        return None
+    try:
+        from openai import AzureOpenAI
+        client = AzureOpenAI(
+            api_version=GPT41_API_VERSION,
+            azure_endpoint=GPT41_ENDPOINT,
+            api_key=GPT41_API_KEY,
+        )
+        return client
+    except Exception as e:
+        st.error(f"GPT-4.1 client error: {str(e)}")
+        return None
+
 def call_ai_model(prompt, model_name, system_message="You are an expert AI assistant.", max_tokens=4000):
     """Unified function to call any AI model"""
-    client = get_inference_client()
-    if not client:
-        return f"Failed to initialize AI client for {model_name}"
     
-    try:
-        response = client.complete(
-            messages=[
-                SystemMessage(content=system_message),
-                UserMessage(content=prompt)
-            ],
-            model=model_name,
-            temperature=0.3,
-            max_tokens=max_tokens
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Error calling {model_name}: {str(e)}"
+    # Handle GPT-5 through its specific client
+    if model_name == GPT5_MODEL_NAME:
+        client = get_gpt5_client()
+        if not client:
+            return f"Failed to initialize GPT-5 client for {model_name}"
+        
+        try:
+            response = client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_message,
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                model=GPT5_DEPLOYMENT
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error calling {model_name}: {str(e)}"
+    
+    # Handle GPT-4.1 through its specific client
+    if model_name == GPT41_MODEL_NAME:
+        client = get_gpt41_client()
+        if not client:
+            return f"Failed to initialize GPT-4.1 client for {model_name}"
+        
+        try:
+            response = client.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": system_message,
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    }
+                ],
+                model=GPT41_DEPLOYMENT,
+                max_tokens=13107,
+                temperature=0.3
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error calling {model_name}: {str(e)}"
+    
+    # Handle Azure AI Inference models (Llama, Codestral, DeepSeek)
+    if model_name in [LLAMA_MODEL, CODESTRAL_MODEL, DEEPSEEK_MODEL]:
+        client = get_inference_client()
+        if not client:
+            return f"Failed to initialize AI client for {model_name}"
+        
+        try:
+            response = client.complete(
+                messages=[
+                    SystemMessage(content=system_message),
+                    UserMessage(content=prompt)
+                ],
+                model=model_name,
+                temperature=0.3,
+                max_tokens=max_tokens
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            return f"Error calling {model_name}: {str(e)}"
+    
+    return f"Unknown model: {model_name}"
 
 def extract_text_from_image(image):
     """Extract text from image using OCR with graceful fallback"""
@@ -180,20 +291,37 @@ All AI models and advanced features are available.
     except Exception as e:
         return f"❌ OCR Error: {str(e)}. Please use manual input instead."
 
-def extract_python_code(response_text):
-    """Extract Python code from response"""
-    code_blocks = re.findall(r'```python\n(.*?)\n```', response_text, re.DOTALL)
-    if code_blocks:
-        return code_blocks[0]
+def extract_code_from_response(response_text, language="Python"):
+    """Extract code from response based on the programming language"""
+    language_patterns = {
+        "Python": [r'```python\n(.*?)\n```', r'```py\n(.*?)\n```'],
+        "Java": [r'```java\n(.*?)\n```'],
+        "C++": [r'```cpp\n(.*?)\n```', r'```c\+\+\n(.*?)\n```'],
+        "Go": [r'```go\n(.*?)\n```', r'```golang\n(.*?)\n```'],
+        "C#": [r'```csharp\n(.*?)\n```', r'```cs\n(.*?)\n```', r'```c#\n(.*?)\n```']
+    }
     
+    # Try language-specific patterns first
+    if language in language_patterns:
+        for pattern in language_patterns[language]:
+            code_blocks = re.findall(pattern, response_text, re.DOTALL | re.IGNORECASE)
+            if code_blocks:
+                return code_blocks[0]
+    
+    # Fallback to generic code blocks
     code_blocks = re.findall(r'```\n(.*?)\n```', response_text, re.DOTALL)
     if code_blocks:
         return code_blocks[0]
     
     return response_text
 
-def filter_deepseek_response(response_text, model_name):
-    """Filter out thinking part from DeepSeek R1 responses"""
+def extract_python_code(response_text):
+    """Extract Python code from response (backward compatibility)"""
+    return extract_code_from_response(response_text, "Python")
+
+def filter_model_response(response_text, model_name):
+    """Filter out any unwanted parts from model responses"""
+    # Currently only handles DeepSeek R1 thinking parts, but can be extended for other models
     if "DeepSeek-R1" not in model_name:
         return response_text
     
@@ -211,34 +339,34 @@ def filter_deepseek_response(response_text, model_name):
     
     return filtered_text
 
-def extract_code_with_fallback(response_text, model_name):
-    """Extract code with fallback LLM if DeepSeek has issues"""
+def extract_code_with_fallback(response_text, model_name, language="Python"):
+    """Extract code with fallback LLM if extraction has issues"""
     # First try normal extraction
-    code = extract_python_code(response_text)
+    code = extract_code_from_response(response_text, language)
     
-    # If no code found and it's DeepSeek, try using another LLM to extract
-    if not code and "DeepSeek-R1" in model_name:
+    # If no code found, try using another LLM to extract
+    if not code:
         extraction_prompt = f"""
-        Extract ONLY the Python code from this response. Remove any thinking parts or explanations.
-        Return ONLY the clean Python code that can be executed directly.
+        Extract ONLY the {language} code from this response. Remove any thinking parts or explanations.
+        Return ONLY the clean {language} code that can be executed directly.
         
         Response to extract from:
         {response_text}
         
-        Provide only the Python code, nothing else.
+        Provide only the {language} code, nothing else.
         """
         
-        # Try GPT-4.1 for extraction
-        for extraction_model in ["gpt-4.1", LLAMA_MODEL, CODESTRAL_MODEL]:
+        # Try GPT-5, then GPT-4.1, then other models for extraction
+        for extraction_model in [GPT5_MODEL_NAME, GPT41_MODEL_NAME, LLAMA_MODEL, CODESTRAL_MODEL]:
             try:
                 extracted_response = call_ai_model(
                     extraction_prompt, 
                     extraction_model, 
-                    "You are a code extraction specialist. Return only clean Python code.",
+                    f"You are a code extraction specialist. Return only clean {language} code.",
                     max_tokens=4000
                 )
-                if not extracted_response.startswith("Error calling"):
-                    extracted_code = extract_python_code(extracted_response)
+                if extracted_response and not str(extracted_response).startswith("Error calling"):
+                    extracted_code = extract_code_from_response(extracted_response, language)
                     if extracted_code:
                         return extracted_code
             except:
@@ -246,32 +374,126 @@ def extract_code_with_fallback(response_text, model_name):
     
     return code
 
-def run_python_code(code):
-    """Execute Python code and capture output"""
+def run_code(code, language="Python"):
+    """Execute code in the specified programming language and capture output"""
     try:
         import tempfile
         import uuid
-        temp_file = f'temp_solution_{uuid.uuid4().hex[:8]}.py'
+        
+        # Define file extensions and execution commands for different languages
+        language_config = {
+            "Python": {
+                "extension": ".py",
+                "command": [sys.executable],
+                "compile": False
+            },
+            "Java": {
+                "extension": ".java",
+                "command": ["java"],
+                "compile": True,
+                "compile_cmd": ["javac"]
+            },
+            "C++": {
+                "extension": ".cpp",
+                "command": ["./temp_solution"],
+                "compile": True,
+                "compile_cmd": ["g++", "-o", "temp_solution"]
+            },
+            "Go": {
+                "extension": ".go",
+                "command": ["go", "run"],
+                "compile": False
+            },
+            "C#": {
+                "extension": ".cs",
+                "command": ["dotnet", "run"],
+                "compile": False
+            }
+        }
+        
+        if language not in language_config:
+            return "", f"Unsupported language: {language}", 1
+            
+        config = language_config[language]
+        temp_file = f'temp_solution_{uuid.uuid4().hex[:8]}{config["extension"]}'
+        
+        # Handle Java class name extraction
+        if language == "Java":
+            # Extract class name from code
+            import re
+            class_match = re.search(r'public\s+class\s+(\w+)', code)
+            if class_match:
+                class_name = class_match.group(1)
+                temp_file = f'{class_name}.java'
         
         with open(temp_file, 'w', encoding='utf-8') as f:
             f.write(code)
         
+        # Compile if needed
+        command = config["command"] + [temp_file]  # Default command
+        
+        if config.get("compile", False):
+            if language == "C++":
+                compile_result = subprocess.run(
+                    config["compile_cmd"] + [temp_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    encoding='utf-8'
+                )
+                if compile_result.returncode != 0:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                    return "", f"Compilation error: {compile_result.stderr}", 1
+                command = config["command"]  # Use compiled executable
+                    
+            elif language == "Java":
+                compile_result = subprocess.run(
+                    config["compile_cmd"] + [temp_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    encoding='utf-8'
+                )
+                if compile_result.returncode != 0:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                    return "", f"Compilation error: {compile_result.stderr}", 1
+                
+                # For Java, run the compiled class
+                class_name = temp_file.replace('.java', '')
+                command = config["command"] + [class_name]
+        
+        # Execute the code
         result = subprocess.run(
-            [sys.executable, temp_file],
+            command,
             capture_output=True,
             text=True,
             timeout=30,
             encoding='utf-8'
         )
         
+        # Clean up files
         if os.path.exists(temp_file):
             os.remove(temp_file)
+        if language == "C++" and os.path.exists("temp_solution"):
+            os.remove("temp_solution")
+        if language == "Java":
+            class_file = temp_file.replace('.java', '.class')
+            if os.path.exists(class_file):
+                os.remove(class_file)
         
         return result.stdout, result.stderr, result.returncode
     except subprocess.TimeoutExpired:
         return "", "Execution timed out (30 seconds)", 1
+    except FileNotFoundError as e:
+        return "", f"Compiler/Runtime not found: {str(e)}. Please ensure {language} is installed.", 1
     except Exception as e:
         return "", str(e), 1
+
+def run_python_code(code):
+    """Execute Python code and capture output (backward compatibility)"""
+    return run_code(code, "Python")
 
 def deep_problem_analysis(problem_text, model_name):
     """Deep analysis of the problem using specified model"""
@@ -326,18 +548,15 @@ def deep_problem_analysis(problem_text, model_name):
     
     return call_ai_model(prompt, model_name, system_message, max_tokens=6000)
 
-def generate_solution_with_model(problem_text, analysis, model_name, iteration_num):
+def generate_solution_with_model(problem_text, analysis, model_name, iteration_num, language="Python"):
     """Generate solution using specific model with iteration-aware prompting"""
     
-    # Handle combined DeepSeek + Codestral approach
-    if model_name == "deepseek+codestral":
-        return generate_combined_deepseek_codestral_solution(problem_text, analysis, iteration_num)
-    
     system_messages = {
-        "gpt-4.1": "You are GPT-4.1, an expert competitive programming assistant focused on correctness and optimal solutions.",
-        LLAMA_MODEL: "You are Meta-Llama-3.1-405B, an expert algorithm designer focused on correctness and efficiency.",
-        CODESTRAL_MODEL: "You are Codestral-2501, specialized in generating clean, bug-free Python code for competitive programming.",
-        DEEPSEEK_MODEL: "You are DeepSeek-R1, an expert code reviewer and optimizer with deep understanding of algorithmic correctness."
+        GPT41_MODEL_NAME: f"You are GPT-4.1, an expert competitive programming assistant focused on correctness and optimal solutions in {language}.",
+        GPT5_MODEL_NAME: f"You are GPT-5, an advanced expert competitive programming assistant with superior analytical capabilities and {language} solution generation.",
+        LLAMA_MODEL: f"You are Meta-Llama-3.1-405B, an expert algorithm designer focused on correctness and efficiency in {language}.",
+        CODESTRAL_MODEL: f"You are Codestral-2501, specialized in generating clean, bug-free {language} code for competitive programming.",
+        DEEPSEEK_MODEL: f"You are DeepSeek-R1, an advanced reasoning model with superior problem-solving capabilities in {language}."
     }
     
     iteration_context = {
@@ -346,6 +565,168 @@ def generate_solution_with_model(problem_text, analysis, model_name, iteration_n
         3: "This is the THIRD iteration. Previous attempts failed. Be more careful with edge cases and algorithm logic.",
         4: "This is FOURTH iteration. Multiple failures occurred. Completely rethink the approach.",
         5: "This is FIFTH+ iteration. Previous approaches failed significantly. Use a different algorithmic strategy."
+    }
+    
+    # Language-specific code structure templates
+    code_templates = {
+        "Python": """
+```python
+def solve(params):
+    # Your solution logic here
+    return result
+
+# Test cases
+def test():
+    tests = [
+        # 10 test cases with expected results
+    ]
+    f = 0
+    for i, (inp, exp) in enumerate(tests):
+        res = solve(*inp) if isinstance(inp, tuple) else solve(inp)
+        if res == exp:
+            print(f"Test {{i+1}}: PASS")
+        else:
+            print(f"Test {{i+1}}: FAIL Expected={{exp}} Got={{res}}")
+            f += 1
+    print(f"Failed: {{f}}")
+
+test()
+```""",
+        
+        "Java": """
+```java
+public class Solution {
+    public static ReturnType solve(params) {
+        // Your solution logic here
+        return result;
+    }
+    
+    public static void main(String[] args) {
+        // Test cases
+        Object[][] tests = {
+            // 10 test cases with expected results
+        };
+        int f = 0;
+        for (int i = 0; i < tests.length; i++) {
+            Object result = solve(/* extract params from tests[i] */);
+            Object expected = /* extract expected from tests[i] */;
+            if (result.equals(expected)) {
+                System.out.println("Test " + (i+1) + ": PASS");
+            } else {
+                System.out.println("Test " + (i+1) + ": FAIL Expected=" + expected + " Got=" + result);
+                f++;
+            }
+        }
+        System.out.println("Failed: " + f);
+    }
+}
+```""",
+        
+        "C++": """
+```cpp
+#include <iostream>
+#include <vector>
+// Add other necessary headers
+
+ReturnType solve(params) {
+    // Your solution logic here
+    return result;
+}
+
+int main() {
+    // Test cases
+    vector<pair<InputType, ExpectedType>> tests = {
+        // 10 test cases with expected results
+    };
+    int f = 0;
+    for (int i = 0; i < tests.size(); i++) {
+        auto result = solve(tests[i].first);
+        auto expected = tests[i].second;
+        if (result == expected) {
+            cout << "Test " << (i+1) << ": PASS" << endl;
+        } else {
+            cout << "Test " << (i+1) << ": FAIL Expected=" << expected << " Got=" << result << endl;
+            f++;
+        }
+    }
+    cout << "Failed: " << f << endl;
+    return 0;
+}
+```""",
+        
+        "Go": """
+```go
+package main
+
+import "fmt"
+
+func solve(params) ReturnType {
+    // Your solution logic here
+    return result
+}
+
+func main() {
+    // Test cases
+    tests := []struct {
+        input    InputType
+        expected ExpectedType
+    }{
+        // 10 test cases with expected results
+    }
+    
+    f := 0
+    for i, test := range tests {
+        result := solve(test.input)
+        if result == test.expected {
+            fmt.Printf("Test %d: PASS\\n", i+1)
+        } else {
+            fmt.Printf("Test %d: FAIL Expected=%v Got=%v\\n", i+1, test.expected, result)
+            f++
+        }
+    }
+    fmt.Printf("Failed: %d\\n", f)
+}
+```""",
+        
+        "C#": """
+```csharp
+using System;
+
+public class Solution 
+{
+    public static ReturnType Solve(params)
+    {
+        // Your solution logic here
+        return result;
+    }
+    
+    public static void Main()
+    {
+        // Test cases
+        var tests = new (InputType input, ExpectedType expected)[]
+        {
+            // 10 test cases with expected results
+        };
+        
+        int f = 0;
+        for (int i = 0; i < tests.Length; i++)
+        {
+            var result = Solve(tests[i].input);
+            var expected = tests[i].expected;
+            if (result.Equals(expected))
+            {
+                Console.WriteLine($"Test {i+1}: PASS");
+            }
+            else
+            {
+                Console.WriteLine($"Test {i+1}: FAIL Expected={expected} Got={result}");
+                f++;
+            }
+        }
+        Console.WriteLine($"Failed: {f}");
+    }
+}
+```"""
     }
     
     context = iteration_context.get(iteration_num, iteration_context[5])
@@ -360,166 +741,24 @@ def generate_solution_with_model(problem_text, analysis, model_name, iteration_n
     {analysis}
 
     CRITICAL REQUIREMENTS:
-    1. Generate COMPLETE Python code that ACTUALLY WORKS
+    1. Generate COMPLETE {language} code that ACTUALLY WORKS
     2. Include exactly 10 comprehensive test cases covering ALL edge cases
-    3. Use shorter variable names (a, b, c, i, j, k, n, m, etc.)
+    3. Use appropriate variable naming conventions for {language}
     4. NO comments in the code whatsoever
     5. Each test case must print "Test X: PASS" or "Test X: FAIL" with expected vs actual
     6. Include final summary: "Failed: X" or "All tests passed"
     7. Handle ALL edge cases from the analysis
     8. Make sure the algorithm is CORRECT, not just syntactically valid
+    9. Follow {language} best practices and conventions
 
-    CODE STRUCTURE:
-    ```python
-    def solve(params):
-        # Your solution logic here
-        return result
-
-    # Test cases
-    def test():
-        tests = [
-            # 10 test cases with expected results
-        ]
-        f = 0
-        for i, (inp, exp) in enumerate(tests):
-            res = solve(*inp) if isinstance(inp, tuple) else solve(inp)
-            if res == exp:
-                print(f"Test {{i+1}}: PASS")
-            else:
-                print(f"Test {{i+1}}: FAIL Expected={{exp}} Got={{res}}")
-                f += 1
-        print(f"Failed: {{f}}")
-
-    test()
-    ```
+    CODE STRUCTURE ({language}):
+    {code_templates.get(language, code_templates["Python"])}
 
     Focus on algorithmic correctness. Make it WORK, not just compile.
+    Use {language} syntax and idioms properly.
     """
     
-    return call_ai_model(prompt, model_name, system_messages.get(model_name, "You are an expert programmer."), max_tokens=8000)
-
-def generate_combined_deepseek_codestral_solution(problem_text, analysis, iteration_num):
-    """Combined approach: DeepSeek for analysis/approach + Codestral for implementation"""
-    
-    iteration_context = {
-        1: "This is the FIRST iteration. Focus on creating a solid, well-tested foundation.",
-        2: "This is the SECOND iteration. The previous attempt likely had basic issues. Focus on correctness.",
-        3: "This is the THIRD iteration. Previous attempts failed. Be more careful with edge cases and algorithm logic.",
-        4: "This is FOURTH iteration. Multiple failures occurred. Completely rethink the approach.",
-        5: "This is FIFTH+ iteration. Previous approaches failed significantly. Use a different algorithmic strategy."
-    }
-    
-    context = iteration_context.get(iteration_num, iteration_context[5])
-    
-    # Step 1: Get DeepSeek's algorithmic approach and strategy
-    deepseek_prompt = f"""
-    {context}
-
-    PROBLEM:
-    {problem_text}
-
-    INITIAL ANALYSIS:
-    {analysis}
-
-    As DeepSeek-R1, provide a DETAILED ALGORITHMIC STRATEGY for solving this problem:
-
-    1. APPROACH SELECTION: Which algorithm/technique is most suitable and why?
-    2. STEP-BY-STEP ALGORITHM: Detailed pseudocode or algorithm steps
-    3. EDGE CASES: What specific edge cases need handling?
-    4. IMPLEMENTATION HINTS: Key implementation details and potential pitfalls
-    5. TEST STRATEGY: What test cases would validate the solution?
-    6. OPTIMIZATION OPPORTUNITIES: Performance considerations
-
-    Provide a comprehensive strategy that a coding specialist can implement directly.
-    Focus on CORRECTNESS and COMPLETENESS over brevity.
-    """
-    
-    # Get DeepSeek's strategic analysis
-    deepseek_response = call_ai_model(
-        deepseek_prompt, 
-        DEEPSEEK_MODEL, 
-        "You are DeepSeek-R1, an expert algorithmic strategist. Provide detailed, actionable implementation strategies.",
-        max_tokens=6000
-    )
-    
-    if deepseek_response.startswith("Error calling"):
-        return f"DeepSeek analysis failed: {deepseek_response}"
-    
-    # Filter out thinking parts from DeepSeek
-    filtered_deepseek = filter_deepseek_response(deepseek_response, DEEPSEEK_MODEL)
-    
-    # Step 2: Pass DeepSeek's strategy to Codestral for implementation
-    codestral_prompt = f"""
-    {context}
-
-    ORIGINAL PROBLEM:
-    {problem_text}
-
-    DEEPSEEK'S ALGORITHMIC STRATEGY:
-    {filtered_deepseek}
-
-    As Codestral-2501, implement the strategy provided by DeepSeek into WORKING Python code:
-
-    CRITICAL IMPLEMENTATION REQUIREMENTS:
-    1. Follow DeepSeek's algorithmic approach EXACTLY
-    2. Generate COMPLETE Python code that ACTUALLY WORKS
-    3. Include exactly 10 comprehensive test cases covering ALL edge cases mentioned by DeepSeek
-    4. Use shorter variable names (a, b, c, i, j, k, n, m, etc.)
-    5. NO comments in the code whatsoever
-    6. Each test case must print "Test X: PASS" or "Test X: FAIL" with expected vs actual
-    7. Include final summary: "Failed: X" or "All tests passed"
-    8. Handle ALL edge cases identified by DeepSeek
-    9. Implement any optimizations suggested by DeepSeek
-
-    CODE STRUCTURE:
-    ```python
-    def solve(params):
-        # Implement DeepSeek's algorithm here
-        return result
-
-    def test():
-        tests = [
-            # 10 test cases based on DeepSeek's test strategy
-        ]
-        f = 0
-        for i, (inp, exp) in enumerate(tests):
-            res = solve(*inp) if isinstance(inp, tuple) else solve(inp)
-            if res == exp:
-                print(f"Test {{i+1}}: PASS")
-            else:
-                print(f"Test {{i+1}}: FAIL Expected={{exp}} Got={{res}}")
-                f += 1
-        print(f"Failed: {{f}}")
-
-    test()
-    ```
-
-    Focus on translating DeepSeek's strategy into CORRECT, WORKING code.
-    """
-    
-    # Get Codestral's implementation
-    codestral_response = call_ai_model(
-        codestral_prompt,
-        CODESTRAL_MODEL,
-        "You are Codestral-2501, an expert code implementation specialist. Convert algorithmic strategies into perfect working code.",
-        max_tokens=8000
-    )
-    
-    if codestral_response.startswith("Error calling"):
-        return f"Codestral implementation failed: {codestral_response}"
-    
-    # Combine both responses for full context
-    combined_response = f"""
-DEEPSEEK ALGORITHMIC STRATEGY:
-{filtered_deepseek}
-
----
-
-CODESTRAL IMPLEMENTATION:
-{codestral_response}
-"""
-    
-    return combined_response
+    return call_ai_model(prompt, model_name, system_messages.get(model_name, f"You are an expert {language} programmer."), max_tokens=8000)
 
 def analyze_failure_patterns(iteration_history):
     """Analyze failure patterns across iterations to provide strategic insights"""
@@ -586,41 +825,56 @@ def analyze_failure_patterns(iteration_history):
 
 def choose_next_model(iteration_num, previous_models_used):
     """Strategically choose the next model based on iteration and previous usage"""
+    # All available working models
+    all_models = [GPT5_MODEL_NAME, GPT41_MODEL_NAME, LLAMA_MODEL, CODESTRAL_MODEL, DEEPSEEK_MODEL]
+    
     model_strategy = {
-        1: "gpt-4.1",        # Start with GPT-4.1 for strong foundation
-        2: LLAMA_MODEL,      # Switch to Llama for algorithm design
-        3: "deepseek+codestral",  # Combined DeepSeek analysis + Codestral code
-        4: "gpt-4.1",        # Back to GPT-4.1 with different approach
-        5: LLAMA_MODEL,      # Llama again with more focus
-        6: "deepseek+codestral",  # Combined approach again
+        1: GPT5_MODEL_NAME,      # Start with GPT-5 for superior capabilities
+        2: GPT41_MODEL_NAME,     # Fallback to GPT-4.1 for reliability
+        3: LLAMA_MODEL,          # Switch to Llama for different approach
+        4: CODESTRAL_MODEL,      # Codestral for code generation
+        5: DEEPSEEK_MODEL,       # DeepSeek for advanced reasoning
+        6: GPT5_MODEL_NAME,      # Back to GPT-5 with different strategy
+        7: GPT41_MODEL_NAME,     # GPT-4.1 again
+        8: LLAMA_MODEL,          # Llama again with more focus
     }
     
-    # For iterations beyond 6, cycle through models including combined approach
-    if iteration_num > 6:
-        models = ["gpt-4.1", LLAMA_MODEL, "deepseek+codestral"]
-        return models[(iteration_num - 1) % len(models)]
+    # For iterations beyond 8, cycle through all models
+    if iteration_num > 8:
+        return all_models[(iteration_num - 1) % len(all_models)]
     
-    return model_strategy.get(iteration_num, LLAMA_MODEL)
+    return model_strategy.get(iteration_num, GPT5_MODEL_NAME)
 
-def enhanced_solve_with_multi_llm(problem_text, max_iterations=10):
+def enhanced_solve_with_multi_llm(problem_text, max_iterations=10, language="Python"):
     """Enhanced solving with strategic multi-LLM approach and deep analysis"""
+    
+    # Language mapping for syntax highlighting
+    language_mapping = {
+        "Python": "python",
+        "Java": "java", 
+        "C++": "cpp",
+        "Go": "go",
+        "C#": "csharp"
+    }
     
     # Step 1: Deep Problem Analysis
     st.subheader("🧠 Deep Problem Analysis")
     analysis_progress = st.progress(0)
     
     with st.spinner("Performing deep problem analysis..."):
-        # Use the most capable model for analysis
+        # Use GPT-5 first, then GPT-4.1 as fallback for analysis
         analysis_model = None
         analysis_result = None
         
-        for model in GPT4_MODELS + [LLAMA_MODEL]:
+        # Try GPT-5 first, then fallback to other models
+        analysis_models = [GPT5_MODEL_NAME, GPT41_MODEL_NAME, LLAMA_MODEL]
+        for model in analysis_models:
             analysis_result = deep_problem_analysis(problem_text, model)
-            if not analysis_result.startswith("Error calling"):
+            if analysis_result and not str(analysis_result).startswith("Error calling"):
                 analysis_model = model
                 break
         
-        if not analysis_result or analysis_result.startswith("Error calling"):
+        if not analysis_result or str(analysis_result).startswith("Error calling"):
             st.error("Failed to perform problem analysis")
             return
     
@@ -663,40 +917,37 @@ def enhanced_solve_with_multi_llm(problem_text, max_iterations=10):
             
             st.info(f"🤖 Using {chosen_model} for iteration {iteration}")
             
-            # Generate solution
-            if chosen_model == "deepseek+codestral":
-                with st.spinner(f"Generating solution with DeepSeek strategy + Codestral implementation..."):
-                    solution_response = generate_solution_with_model(
-                        problem_text, analysis_result, chosen_model, iteration
-                    )
-            else:
-                with st.spinner(f"Generating solution with {chosen_model}..."):
-                    solution_response = generate_solution_with_model(
-                        problem_text, analysis_result, chosen_model, iteration
-                    )
+            # Generate solution with the chosen model
+            with st.spinner(f"Generating solution with {chosen_model}..."):
+                solution_response = generate_solution_with_model(
+                    problem_text, analysis_result, chosen_model, iteration, language
+                )
             
-            if solution_response.startswith("Error calling"):
+            if str(solution_response).startswith("Error calling"):
                 st.error(f"Model call failed: {solution_response}")
                 continue
             
-            # Filter DeepSeek R1 thinking parts and extract code
-            if chosen_model == "deepseek+codestral":
-                # For combined approach, extract code from Codestral part
-                filtered_response = solution_response
-                current_code = extract_python_code(solution_response)
-            else:
-                filtered_response = filter_deepseek_response(solution_response, chosen_model)
-                current_code = extract_code_with_fallback(filtered_response, chosen_model)
+            # Extract code from response
+            filtered_response = filter_model_response(solution_response, chosen_model)
+            current_code = extract_code_with_fallback(filtered_response, chosen_model, language)
             
             if not current_code:
                 st.error("No code extracted from response")
                 continue
             
-            st.code(current_code, language='python', line_numbers=True)
+            # Display code with language-specific syntax highlighting
+            language_mapping = {
+                "Python": "python",
+                "Java": "java", 
+                "C++": "cpp",
+                "Go": "go",
+                "C#": "csharp"
+            }
+            st.code(current_code, language=language_mapping.get(language, "python"), line_numbers=True)
             
             # Execute and analyze
             with st.spinner("Testing solution..."):
-                stdout, stderr, returncode = run_python_code(current_code)
+                stdout, stderr, returncode = run_code(current_code, language)
             
             # Store iteration results
             iteration_data = {
@@ -730,24 +981,30 @@ def enhanced_solve_with_multi_llm(problem_text, max_iterations=10):
                         
                         # Final solution display
                         st.subheader("🏆 FINAL SOLUTION")
-                        st.code(current_code, language='python', line_numbers=True)
+                        st.code(current_code, language=language_mapping.get(language, "python"), line_numbers=True)
+                        
+                        # Set appropriate file extension
+                        file_extensions = {
+                            "Python": ".py",
+                            "Java": ".java",
+                            "C++": ".cpp",
+                            "Go": ".go",
+                            "C#": ".cs"
+                        }
+                        file_ext = file_extensions.get(language, ".py")
                         
                         st.download_button(
                             label="📥 Download Solution",
                             data=current_code,
-                            file_name="enhanced_dsa_solution.py",
-                            mime="text/python"
+                            file_name=f"enhanced_dsa_solution{file_ext}",
+                            mime="text/plain"
                         )
                         
                         # Success metrics
                         st.subheader("📊 Success Metrics")
-                        col_a, col_b, col_c = st.columns(3)
-                        with col_a:
-                            st.metric("Iterations Used", iteration)
-                        with col_b:
-                            st.metric("Models Used", len(set(models_used)))
-                        with col_c:
-                            st.metric("Success Rate", f"{(1/iteration)*100:.1f}%")
+                        st.metric("Iterations Used", iteration)
+                        st.metric("Models Used", len(set(models_used)))
+                        st.metric("Success Rate", f"{(1/iteration)*100:.1f}%")
                         
                         return
                     elif has_failures:
@@ -802,18 +1059,29 @@ def enhanced_solve_with_multi_llm(problem_text, max_iterations=10):
             
             st.subheader("🥈 Best Attempt")
             st.info(f"Iteration {best_iteration + 1} with {max(test_progression)} passing tests")
-            st.code(best_code, language='python')
+            st.code(best_code, language=language_mapping.get(language, "python"))
+            
+            # Set appropriate file extension for best attempt
+            file_extensions = {
+                "Python": ".py",
+                "Java": ".java", 
+                "C++": ".cpp",
+                "Go": ".go",
+                "C#": ".cs"
+            }
+            file_ext = file_extensions.get(language, ".py")
             
             st.download_button(
                 label="📥 Download Best Attempt",
                 data=best_code,
-                file_name="best_attempt_solution.py",
-                mime="text/python"
+                file_name=f"best_attempt_solution{file_ext}",
+                mime="text/plain"
             )
 
 def main():
-    st.title("🚀 Enhanced Multi-LLM DSA Solver")
-    st.markdown("**Advanced AI Pipeline:** Strategic Multi-Model Approach with Deep Analysis")
+    st.title("🚀 Enhanced Multi-LLM DSA Solver with GPT-5")
+    st.markdown("**Advanced AI Pipeline:** GPT-5 Analysis + Strategic Multi-Model Approach + Multi-Language Support")
+    st.info("💻 **Supported Languages:** Python • Java • C++ • Go • C# | Choose your preferred language in the sidebar!")
     
     # Enhanced System status with troubleshooting info
     with st.expander("🔧 System Status & Troubleshooting"):
@@ -902,32 +1170,76 @@ def main():
                 1. Go to Streamlit Cloud app settings → Secrets
                 2. Add these secrets:
                    ```toml
-                   AZURE_API_KEY = "your-key-here"
-                   INFERENCE_ENDPOINT = "your-endpoint-here"
+                   AZURE_API_KEY = "your-azure-api-key-here"
+                   INFERENCE_ENDPOINT = "https://your-endpoint.services.ai.azure.com/models"
                    LLAMA_MODEL = "Meta-Llama-3.1-405B-Instruct"
                    CODESTRAL_MODEL = "Codestral-2501"
                    DEEPSEEK_MODEL = "DeepSeek-R1-0528"
+                   GPT5_ENDPOINT = "https://your-gpt5-endpoint.openai.azure.com/"
+                   GPT5_API_KEY = "your-gpt5-api-key-here"
+                   GPT5_API_VERSION = "2024-12-01-preview"
+                   GPT41_ENDPOINT = "https://your-gpt41-endpoint.cognitiveservices.azure.com/"
+                   GPT41_API_KEY = "your-gpt41-api-key-here"
+                   GPT41_API_VERSION = "2024-12-01-preview"
                    ```
                 3. Restart the app
                 """)
-    
-    # Model availability check
-    if AZURE_AI_AVAILABLE and get_inference_client():
-        st.subheader("🤖 Model Status Check")
-        col1, col2, col3 = st.columns(3)
         
-        test_models = [LLAMA_MODEL, CODESTRAL_MODEL, DEEPSEEK_MODEL]
-        for i, model in enumerate(test_models):
-            with [col1, col2, col3][i]:
-                with st.spinner(f"Testing {model.split('-')[0]}..."):
-                    test_result = call_ai_model("Hello", model, "You are a test assistant", max_tokens=10)
-                    if not test_result.startswith("🔴") and not test_result.startswith("Error"):
-                        st.success(f"✅ {model.split('-')[0]}")
-                    else:
-                        st.error(f"❌ {model.split('-')[0]}")
-                        st.caption(f"Error: {test_result[:100]}...")
-    elif AZURE_AI_AVAILABLE:
-        st.warning("⚠️ Azure AI available but client initialization failed - check secrets")
+        # Show required secrets configuration
+        if not AZURE_AI_AVAILABLE or not get_inference_client():
+            st.markdown("### 📋 **Required Streamlit Cloud Secrets Configuration:**")
+            st.code("""
+# Add these to your Streamlit Cloud app secrets:
+AZURE_API_KEY = "your-azure-inference-api-key"
+INFERENCE_ENDPOINT = "https://your-endpoint.services.ai.azure.com/models"
+GPT5_ENDPOINT = "https://your-gpt5-endpoint.openai.azure.com/"
+GPT5_API_KEY = "your-gpt5-api-key"
+GPT41_ENDPOINT = "https://your-gpt41-endpoint.cognitiveservices.azure.com/"
+GPT41_API_KEY = "your-gpt41-api-key"
+
+# Optional (have defaults):
+LLAMA_MODEL = "Meta-Llama-3.1-405B-Instruct"
+CODESTRAL_MODEL = "Codestral-2501" 
+DEEPSEEK_MODEL = "DeepSeek-R1-0528"
+GPT5_API_VERSION = "2024-12-01-preview"
+GPT41_API_VERSION = "2024-12-01-preview"
+            """, language="toml")
+    
+    # Model availability check - only run once per session
+    if AZURE_OPENAI_AVAILABLE and (get_gpt5_client() or get_gpt41_client()):
+        if 'model_status_checked' not in st.session_state:
+            st.subheader("🤖 Model Status Check")
+            col1, col2, col3 = st.columns(3)
+            
+            test_models = [GPT5_MODEL_NAME, GPT41_MODEL_NAME, LLAMA_MODEL]
+            for i, model in enumerate(test_models):
+                with [col1, col2, col3][i]:
+                    with st.spinner(f"Testing {model}..."):
+                        test_result = call_ai_model("Hello", model, "You are a test assistant", max_tokens=10)
+                        if test_result and not str(test_result).startswith("🔴") and not str(test_result).startswith("Error"):
+                            st.success(f"✅ {model}")
+                        else:
+                            st.error(f"❌ {model}")
+                            st.caption(f"Error: {str(test_result)[:100]}...")
+            
+            # Mark that status check has been completed
+            st.session_state['model_status_checked'] = True
+            
+        else:
+            # Show a simple status indicator without re-testing
+            st.subheader("🤖 Model Status")
+            st.info("✅ Models initialized successfully. Status checked at page load.")
+        
+        # Show additional available models
+        with st.expander("🔍 Available Models"):
+            st.success("✅ GPT-5: Advanced problem analysis and solution generation")
+            st.success("✅ GPT-4.1: Reliable coding and problem solving")
+            st.info("✅ Meta-Llama-3.1-405B: Open source reasoning model")
+            st.info("✅ Codestral-2501: Code generation specialist")
+            st.info("✅ DeepSeek-R1-0528: Advanced reasoning model")
+    
+    elif AZURE_OPENAI_AVAILABLE:
+        st.warning("⚠️ Azure OpenAI available but client initialization failed - check credentials")
     
     # Configuration sidebar
     with st.sidebar:
@@ -938,6 +1250,15 @@ def main():
             max_value=20, 
             value=10,
             help="Maximum number of solution attempts with different models"
+        )
+        
+        # Programming Language Selection
+        st.header("💻 Programming Language")
+        programming_language = st.selectbox(
+            "Select Programming Language:",
+            options=["Python", "Java", "C++", "Go", "C#"],
+            index=0,  # Default to Python
+            help="Choose the programming language for code generation"
         )
         
         st.header("🎯 Strategy Options")
@@ -953,16 +1274,21 @@ def main():
         
         if manual_text and st.button("🚀 Solve with Enhanced Multi-LLM"):
             st.session_state['solve_enhanced'] = manual_text
+            st.session_state['programming_language'] = programming_language
     
     # Check for manual solve
     if 'solve_enhanced' in st.session_state:
         problem_text = st.session_state['solve_enhanced']
+        selected_language = st.session_state.get('programming_language', 'Python')
         del st.session_state['solve_enhanced']
+        if 'programming_language' in st.session_state:
+            del st.session_state['programming_language']
         
         st.subheader("📝 Problem Input")
         st.text_area("Problem Text", problem_text, height=150)
+        st.info(f"🔧 Selected Language: **{selected_language}**")
         
-        enhanced_solve_with_multi_llm(problem_text, max_iterations)
+        enhanced_solve_with_multi_llm(problem_text, max_iterations, selected_language)
         return
     
     # OCR File uploader
@@ -1002,10 +1328,16 @@ def main():
             if all_text.strip():
                 st.subheader("🔗 Combined Problem Text")
                 st.text_area("Extracted Text", all_text, height=200)
-                enhanced_solve_with_multi_llm(all_text, max_iterations)
+                
+                # Use the same language selection as in sidebar, default to Python
+                try:
+                    current_language = programming_language if programming_language else "Python"
+                except NameError:
+                    current_language = "Python"
+                
+                enhanced_solve_with_multi_llm(all_text, max_iterations, current_language)
             else:
                 st.error("❌ No text extracted. Use manual input instead.")
 
 if __name__ == "__main__":
     main()
-
