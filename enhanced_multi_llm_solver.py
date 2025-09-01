@@ -10,7 +10,7 @@ from io import StringIO
 
 # Set page config FIRST - before any other Streamlit commands
 st.set_page_config(
-    page_title="Enhanced Multi-LLM DSA Solver",
+    page_title="Multi-Lang Solver",
     page_icon="🚀",
     layout="wide"
 )
@@ -1341,3 +1341,4 @@ GPT41_API_VERSION = "2024-12-01-preview"
 
 if __name__ == "__main__":
     main()
+
